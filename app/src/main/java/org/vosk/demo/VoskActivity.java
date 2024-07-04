@@ -16,28 +16,32 @@ package org.vosk.demo;
 
 import android.Manifest;
 import android.app.Activity;
+import android.content.Intent;
 import android.content.pm.PackageManager;
+import android.net.Uri;
 import android.os.Bundle;
 import android.text.method.ScrollingMovementMethod;
 import android.widget.Button;
 import android.widget.TextView;
 import android.widget.ToggleButton;
 
+import org.json.JSONException;
+import org.json.JSONObject;
 import org.vosk.LibVosk;
 import org.vosk.LogLevel;
 import org.vosk.Model;
 import org.vosk.Recognizer;
 import org.vosk.android.RecognitionListener;
-import org.vosk.android.SpeechService;
 import org.vosk.android.SpeechStreamService;
 import org.vosk.android.StorageService;
 
+import java.io.File;
 import java.io.IOException;
-import java.io.InputStream;
 
 import androidx.annotation.NonNull;
 import androidx.core.app.ActivityCompat;
 import androidx.core.content.ContextCompat;
+import androidx.core.content.FileProvider;
 
 public class VoskActivity extends Activity implements
         RecognitionListener {
@@ -52,13 +56,16 @@ public class VoskActivity extends Activity implements
     private static final int PERMISSIONS_REQUEST_RECORD_AUDIO = 1;
 
     private Model model;
-    private SpeechService speechService;
+    private MySpeechService speechService;
     private SpeechStreamService speechStreamService;
     private TextView resultView;
+    private File recordFile;
+
 
     @Override
     public void onCreate(Bundle state) {
         super.onCreate(state);
+        recordFile = new File(getCacheDir(), "record.wav");
         setContentView(R.layout.main);
 
         // Setup layout
@@ -120,14 +127,26 @@ public class VoskActivity extends Activity implements
         }
     }
 
+    private String result = "";
+
     @Override
     public void onResult(String hypothesis) {
-        resultView.append(hypothesis + "\n");
+        try {
+            JSONObject json = new JSONObject(hypothesis);
+            result = result + " " + json.getString("text");
+            resultView.setText(result);
+        } catch (JSONException ignored) {
+        }
     }
 
     @Override
     public void onFinalResult(String hypothesis) {
-        resultView.append(hypothesis + "\n");
+        try {
+            JSONObject json = new JSONObject(hypothesis);
+            result = result + " " + json.getString("text");
+            resultView.setText(result);
+        } catch (JSONException ignored) {
+        }
         setUiState(STATE_DONE);
         if (speechStreamService != null) {
             speechStreamService = null;
@@ -136,7 +155,11 @@ public class VoskActivity extends Activity implements
 
     @Override
     public void onPartialResult(String hypothesis) {
-        resultView.append(hypothesis + "\n");
+        try {
+            JSONObject json = new JSONObject(hypothesis);
+            resultView.setText(result + " " + json.getString("partial"));
+        } catch (JSONException ignored) {
+        }
     }
 
     @Override
@@ -200,26 +223,11 @@ public class VoskActivity extends Activity implements
     }
 
     private void recognizeFile() {
-        if (speechStreamService != null) {
-            setUiState(STATE_DONE);
-            speechStreamService.stop();
-            speechStreamService = null;
-        } else {
-            setUiState(STATE_FILE);
-            try {
-                Recognizer rec = new Recognizer(model, 16000.f, "[\"one zero zero zero one\", " +
-                        "\"oh zero one two three four five six seven eight nine\", \"[unk]\"]");
-
-                InputStream ais = getAssets().open(
-                        "10001-90210-01803.wav");
-                if (ais.skip(44) != 44) throw new IOException("File too short");
-
-                speechStreamService = new SpeechStreamService(rec, ais, 16000);
-                speechStreamService.start(this);
-            } catch (IOException e) {
-                setErrorState(e.getMessage());
-            }
-        }
+        Uri contentUri = FileProvider.getUriForFile(this, "com.vosk.demo", recordFile);
+        Intent intent = new Intent(Intent.ACTION_SEND)
+                .setType("audio/wav")
+                .putExtra(Intent.EXTRA_STREAM, contentUri);
+        startActivity(Intent.createChooser(intent, "Share"));
     }
 
     private void recognizeMicrophone() {
@@ -230,8 +238,8 @@ public class VoskActivity extends Activity implements
         } else {
             setUiState(STATE_MIC);
             try {
-                Recognizer rec = new Recognizer(model, 16000.0f);
-                speechService = new SpeechService(rec, 16000.0f);
+                Recognizer rec = new Recognizer(model, MySpeechService.Companion.getSAMPLE_RATE());
+                speechService = new MySpeechService(rec, MySpeechService.Companion.getSAMPLE_RATE(), recordFile);
                 speechService.startListening(this);
             } catch (IOException e) {
                 setErrorState(e.getMessage());
